@@ -1094,6 +1094,32 @@ extern "C" __global__ void cudaDivideByValue(
     }
 }
 
+extern "C" __global__ void cudaDivideByValue(
+              double  *array, 
+              double   value,
+        const int32_t  num_elements
+    ) {
+    
+    /**
+     * Inplace division of double array by value using cuda GPU library.
+     * @param 
+     *           double  *array: array to be divided. 
+     *           double   value: value to divide array by.
+     *     const int32_t  num_elements: num elements in array. 
+     * @see testCudaDivideByValue()
+     * @return void
+     */
+    
+    //Assign unique thread index for GPU calculation:
+    const int32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    
+    //If not outside array bounds, divide array element by array 2:
+    if (tid < num_elements) 
+	{
+        array[tid] /= value;
+    }
+}
+
 extern "C" __global__ void cudaDivideByValueMulti(
               float   *array, 
         const float   *value_array, 
@@ -2350,6 +2376,61 @@ extern "C" int32_t cudaIRfft(
     cudaDivideByValue<<<grid_size,BLOCK_SIZE>>>(
         (float*)data, 
         (float)num_elements, 
+        num_elements
+    );
+
+    cufftDestroy(plan);
+    
+    return 0;
+}
+
+extern "C" int32_t cudaIRfft64(
+    const int32_t          num_elements,
+    const int32_t          num_transforms,
+          cuDoubleComplex *data
+    ) {
+    
+     /**
+     * Perform inplace irfft on cufftDoubleComlex data array.
+     * @param 
+     *     const int32_t             num_elements: num elements in array to be run through 
+     *                                       rfft. 
+     *     const int32_t             num_transforms: num rffts to be performed.
+     *           cuDoubleComplex    *array: array on which to perform irfft.
+     * @see testCudaRfft()
+     * @return 0 or error function.
+     */
+    
+    cufftHandle   plan;
+    if (cufftPlan1d(&plan, num_elements, CUFFT_Z2D, num_transforms) != CUFFT_SUCCESS)
+    {
+        fprintf(stderr, "CUIFFT error: Plan creation failed");
+        return EXIT_FAILURE;	
+    }	
+
+    /* Use the CUFFT plan to transform the signal in place. */
+    if (
+        cufftExecZ2D(
+            plan, 
+            (cufftDoubleComplex*)data, 
+            (cufftDoubleReal*)data) 
+        != CUFFT_SUCCESS)
+    {
+        fprintf(stderr, "CUFFT error = %s. ExecZ2D Forward failed.", __func__);
+        return EXIT_FAILURE;	
+    }
+
+    if (cudaDeviceSynchronize() != cudaSuccess)
+    {
+        fprintf(stderr, "Cuda error: Failed to synchronize\n");
+        return EXIT_FAILURE;	
+    }
+    
+    // Dividing by num_elements to return to orignal value:
+    const int32_t grid_size = ((num_elements + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    cudaDivideByValue<<<grid_size,BLOCK_SIZE>>>(
+        (double*)data, 
+        (double)num_elements, 
         num_elements
     );
 
