@@ -25,6 +25,13 @@
     printf("Error at %s:%d\n",__FILE__,__LINE__);\
     return EXIT_FAILURE;}} while(0)
 
+#ifndef FLOAT16_2
+typedef struct {
+	uint16_t x; 
+	uint16_t y;
+} float16_2_t;
+#endif
+
 cudaError_t CUDARTAPI cudaFree(void *devPtr);
 
 int32_t cudaToHost16(
