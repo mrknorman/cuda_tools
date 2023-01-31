@@ -34,6 +34,26 @@ using namespace std;
 
 typedef __half2 float16_2_t;
 
+
+__device__ __forceinline__ float _square(
+    const float number
+) {
+    return number*number;
+}
+
+__device__ __forceinline__ float _cube(
+    const float number)
+{
+    return number*number*number;
+}
+
+__device__ __forceinline__ float _quart(
+    const float number)
+{
+    const float pow2 = _square(number);
+    return pow2 * pow2;
+}
+
 extern "C" void print16(char *name, float16_2_t value)
 {	
 	printf("%s: %f, %f \n", name, (float)value.x, (float)value.y);
@@ -343,6 +363,33 @@ extern "C" int32_t cudaPrintArray(
     return 0;
 };
 
+extern "C" int32_t cudaPrintArray64(
+    const char    *title,
+    const double   *array_g,
+    const int32_t  num_elements
+    ) {
+    
+    double *array = NULL;
+    cudaToHost(
+        (void*)array_g, 
+        sizeof(double),
+        num_elements,
+        (void**)&array
+    );       
+    
+    printf("%s: [", title);
+    for (int32_t index = 0; index < num_elements; index++)
+    {
+        printf("%f,", array[index]);
+    
+    }
+    printf("]\n");
+    
+    free(array);
+    
+    return 0;
+};
+
 extern "C" int32_t cudaPrintArray16(
     const char        *title,
     const float16_2_t *array_g,
@@ -414,7 +461,7 @@ extern "C" __global__ void cudaAdd(
     }
 }
 
-extern "C" __global__ void cudaAddValue(
+__global__ void cudaAddValue(
               float   *array, 
               float    value, 
         const int32_t  num_elements
@@ -958,7 +1005,7 @@ extern "C" __global__ void cudaMultiplyC(
     }
 }
 
-extern "C" __global__ void cudaDivide(
+__global__ void cudaDivide(
               float   *array_1, 
               float   *array_2, 
         const int32_t  num_elements
@@ -970,6 +1017,32 @@ extern "C" __global__ void cudaDivide(
      *           float   *array_1: array to be divided. 
      *           float   *array_2: array to divide array_1 by.
      *     const int32_t num_elements: num elements in array_1. 
+     * @see testCudaDivide()
+     * @return void
+     */
+    
+    // Assign unique thread index for GPU calculation:
+    const int32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    
+    // If not outside array bounds, divide array_1 element by array 2:
+    if (tid < num_elements) 
+	{
+        array_1[tid] /= array_2[tid];
+    }
+}
+
+__global__ void cudaDivide(
+              double  *array_1, 
+              double  *array_2, 
+        const int32_t  num_elements
+    ) {
+    
+    /**
+     * Inplace division of two double arrays using cuda GPU library.
+     * @param 
+     *           double  *array_1: array to be divided. 
+     *           double  *array_2: array to divide array_1 by.
+     *     const int32_t  num_elements: num elements in array_1. 
      * @see testCudaDivide()
      * @return void
      */
@@ -1068,7 +1141,7 @@ extern "C" int32_t testCudaDivide(
     return !pass;
 }
 
-extern "C" __global__ void cudaDivideByValue(
+__global__ void cudaDivideByValue(
               float   *array, 
               float    value,
         const int32_t  num_elements
@@ -1094,7 +1167,7 @@ extern "C" __global__ void cudaDivideByValue(
     }
 }
 
-extern "C" __global__ void cudaDivideByValue(
+__global__ void cudaDivideByValue(
               double  *array, 
               double   value,
         const int32_t  num_elements
@@ -2332,11 +2405,12 @@ extern "C" int32_t cudaRfft(
 extern "C" int32_t cudaIRfft(
     const int32_t         num_elements,
     const int32_t         num_transforms,
+	      double          normalisation_factor,
           cuFloatComplex *data
     ) {
     
-     /**
-     * Perform inplace irfft on cufftComlex data array.
+    /**
+	 * Perform inplace irfft on cufftComlex data array.
      * @param 
      *     const int32_t             num_elements: num elements in array to be run through 
      *                                       rfft. 
@@ -2345,11 +2419,24 @@ extern "C" int32_t cudaIRfft(
      * @see testCudaRfft()
      * @return 0 or error function.
      */
+	
+	int rank = 1;                           // --- 1D FFTs
+	int n[] = { num_elements };             // --- Size of the Fourier transform
+	int inembed[] = { 0 };                  // --- Input size with pitch (ignored for 1D transforms)
+	int onembed[] = { 0 };                  // --- Output size with pitch (ignored for 1D transforms)
+	int istride = 1, ostride = 1;           // --- Distance between two successive input/output elements
+	int odist = 2*num_elements, idist = num_elements; // --- Distance between batches
+	int batch = num_transforms;             // --- Number of batched executions
     
-    cufftHandle   plan;
-    if (cufftPlan1d(&plan, num_elements, CUFFT_C2R, num_transforms) != CUFFT_SUCCESS)
+    cufftHandle plan;
+    if (
+		cufftPlanMany(
+			&plan, rank, n, 
+			inembed, istride, idist,
+			onembed, ostride, odist, CUFFT_C2R, batch
+		) != CUFFT_SUCCESS)
     {
-        fprintf(stderr, "CUIFFT error: Plan creation failed");
+        fprintf(stderr, "CUIFFT error: Plan creation failed. \n");
         return EXIT_FAILURE;	
     }	
 
@@ -2361,22 +2448,23 @@ extern "C" int32_t cudaIRfft(
             (cufftReal*)data) 
         != CUFFT_SUCCESS)
     {
-        fprintf(stderr, "CUFFT error: ExecC2C Forward failed");
+        fprintf(stderr, "CUFFT error: ExecC2C Forward failed. \n");
         return EXIT_FAILURE;	
     }
 
     if (cudaDeviceSynchronize() != cudaSuccess)
     {
-        fprintf(stderr, "Cuda error: Failed to synchronize\n");
+        fprintf(stderr, "Cuda error: Failed to synchronize. \n");
         return EXIT_FAILURE;	
     }
-    
+	
     // Dividing by num_elements to return to orignal value:
-    const int32_t grid_size = ((num_elements + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    const int32_t grid_size = ((num_elements*num_transforms*2 + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    
     cudaDivideByValue<<<grid_size,BLOCK_SIZE>>>(
         (float*)data, 
-        (float)num_elements, 
-        num_elements
+        (float)normalisation_factor, 
+        num_elements*num_transforms*2
     );
 
     cufftDestroy(plan);
@@ -2385,26 +2473,40 @@ extern "C" int32_t cudaIRfft(
 }
 
 extern "C" int32_t cudaIRfft64(
-    const int32_t          num_elements,
-    const int32_t          num_transforms,
+    const int32_t         num_elements,
+    const int32_t         num_transforms,
+	      double          normalisation_factor,
           cuDoubleComplex *data
     ) {
     
-     /**
-     * Perform inplace irfft on cufftDoubleComlex data array.
+    /**
+	 * Perform inplace irfft on cufftComlex data array.
      * @param 
      *     const int32_t             num_elements: num elements in array to be run through 
      *                                       rfft. 
      *     const int32_t             num_transforms: num rffts to be performed.
-     *           cuDoubleComplex    *array: array on which to perform irfft.
+     *           cuFloatComplex       *array: array on which to perform irfft.
      * @see testCudaRfft()
      * @return 0 or error function.
      */
+	
+	int rank = 1;                           // --- 1D FFTs
+	int n[] = { num_elements };             // --- Size of the Fourier transform
+	int inembed[] = { 0 };                  // --- Input size with pitch (ignored for 1D transforms)
+	int onembed[] = { 0 };                  // --- Output size with pitch (ignored for 1D transforms)
+	int istride = 1, ostride = 1;           // --- Distance between two successive input/output elements
+	int odist = 2*num_elements, idist = num_elements; // --- Distance between batches
+	int batch = num_transforms;             // --- Number of batched executions
     
-    cufftHandle   plan;
-    if (cufftPlan1d(&plan, num_elements, CUFFT_Z2D, num_transforms) != CUFFT_SUCCESS)
+    cufftHandle plan;
+    if (
+		cufftPlanMany(
+			&plan, rank, n, 
+			inembed, istride, idist,
+			onembed, ostride, odist, CUFFT_Z2D, batch
+		) != CUFFT_SUCCESS)
     {
-        fprintf(stderr, "CUIFFT error: Plan creation failed");
+        fprintf(stderr, "CUIFFT error: Plan creation failed. \n");
         return EXIT_FAILURE;	
     }	
 
@@ -2416,22 +2518,22 @@ extern "C" int32_t cudaIRfft64(
             (cufftDoubleReal*)data) 
         != CUFFT_SUCCESS)
     {
-        fprintf(stderr, "CUFFT error = %s. ExecZ2D Forward failed.", __func__);
+        fprintf(stderr, "CUFFT error: ExecC2C Forward failed. \n");
         return EXIT_FAILURE;	
     }
 
     if (cudaDeviceSynchronize() != cudaSuccess)
     {
-        fprintf(stderr, "Cuda error: Failed to synchronize\n");
+        fprintf(stderr, "Cuda error: Failed to synchronize. \n");
         return EXIT_FAILURE;	
     }
-    
+	
     // Dividing by num_elements to return to orignal value:
-    const int32_t grid_size = ((num_elements + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    const int32_t grid_size = ((num_elements*num_transforms*2 + BLOCK_SIZE - 1) / BLOCK_SIZE);
     cudaDivideByValue<<<grid_size,BLOCK_SIZE>>>(
         (double*)data, 
-        (double)num_elements, 
-        num_elements
+        normalisation_factor, 
+        num_elements*num_transforms*2
     );
 
     cufftDestroy(plan);
@@ -2439,7 +2541,7 @@ extern "C" int32_t cudaIRfft64(
     return 0;
 }
 
-extern "C" int32_t testCudaRfft(
+extern "C" int32_t testCudaRfftMany(
     const int32_t verbosity
     ) {
     
@@ -2490,7 +2592,7 @@ extern "C" int32_t testCudaRfft(
     pass *= !cudaRfft(TEST_LENGTH, 1, array_g);
     
     // Run ifft function:
-    pass *= !cudaIRfft(TEST_LENGTH, 1, array_g);
+    pass *= !cudaIRfft(TEST_LENGTH, 1, TEST_LENGTH, array_g);
         
     // Copy array back to host:
     CUDA_CALL(
@@ -3809,7 +3911,7 @@ extern "C" void cudaResample(
     );
 
 	// Perfrom IRFFT:
-	cudaIRfft(new_num_elements, 1, array);
+	cudaIRfft(new_num_elements, 1, new_num_elements, array);
 }
 
 extern "C" __global__ void cudaRealF(

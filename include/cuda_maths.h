@@ -66,6 +66,12 @@ int32_t cudaPrintArray(
     const int32_t  num_elements
     );
 
+int32_t cudaPrintArray64(
+    const char    *title,
+    const double   *array_g,
+    const int32_t  num_elements
+    );
+
 void printTestResult(
     const int32_t  pass,
     const char    *test_name
@@ -268,7 +274,15 @@ int32_t cudaRfft(
 int32_t cudaIRfft(
     const int32_t         num_elements,
     const int32_t         num_transforms,
+	const double          normalisation_factor,
           cuFloatComplex *data
+    );
+
+int32_t cudaIRfft64(
+    const int32_t          num_elements,
+    const int32_t          num_transforms,
+    const double           normalisation_factor,
+          cuDoubleComplex *data
     );
 
 int32_t testCudaRfft(
