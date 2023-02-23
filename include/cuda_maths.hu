@@ -30,6 +30,67 @@
 
 #define H_PI __floats2half2_rn((float)M_PI, (float)M_PI)
 
+static const char *_cufftGetErrorEnum(cufftResult error) 
+{
+    switch (error) {
+        case CUFFT_SUCCESS:
+            return "CUFFT_SUCCESS";
+
+        case CUFFT_INVALID_PLAN:
+            return "CUFFT_INVALID_PLAN";
+
+        case CUFFT_ALLOC_FAILED:
+            return "CUFFT_ALLOC_FAILED";
+
+        case CUFFT_INVALID_TYPE:
+            return "CUFFT_INVALID_TYPE";
+
+        case CUFFT_INVALID_VALUE:
+            return "CUFFT_INVALID_VALUE";
+
+        case CUFFT_INTERNAL_ERROR:
+            return "CUFFT_INTERNAL_ERROR";
+
+        case CUFFT_EXEC_FAILED:
+            return "CUFFT_EXEC_FAILED";
+
+        case CUFFT_SETUP_FAILED:
+            return "CUFFT_SETUP_FAILED";
+
+        case CUFFT_INVALID_SIZE:
+            return "CUFFT_INVALID_SIZE";
+
+        case CUFFT_UNALIGNED_DATA:
+            return "CUFFT_UNALIGNED_DATA";
+
+        case CUFFT_INCOMPLETE_PARAMETER_LIST:
+            return "CUFFT_INCOMPLETE_PARAMETER_LIST";
+
+        case CUFFT_INVALID_DEVICE:
+            return "CUFFT_INVALID_DEVICE";
+
+        case CUFFT_PARSE_ERROR:
+            return "CUFFT_PARSE_ERROR";
+
+        case CUFFT_NO_WORKSPACE:
+            return "CUFFT_NO_WORKSPACE";
+
+        case CUFFT_NOT_IMPLEMENTED:
+            return "CUFFT_NOT_IMPLEMENTED";
+
+        case CUFFT_LICENSE_ERROR:
+            return "CUFFT_LICENSE_ERROR";
+
+        case CUFFT_NOT_SUPPORTED:
+            return "CUFFT_NOT_SUPPORTED";
+            
+        default:
+            return "<unknown>";
+    }
+
+    return "<unknown>";
+}
+
 using namespace std;
 
 typedef __half2 float16_2_t;
@@ -2468,6 +2529,99 @@ extern "C" int32_t cudaIRfft(
     );
 
     cufftDestroy(plan);
+    
+    return 0;
+}
+
+extern "C" int32_t cudaInterlacedIRFFT(
+    const int32_t          num_elements,
+	      double           normalisation_factor,
+          cuFloatComplex  *input,
+          float          **ret_output
+    ) {
+    
+    /**
+	 * Perform inplace irfft on cufftComlex input array.
+     * @param 
+     *     const int32_t             num_elements: num elements in array to be run through 
+     *                                       rfft. 
+     *     const int32_t             num_transforms: num rffts to be performed.
+     *           cuFloatComplex       *array: array on which to perform irfft.
+     * @see testCudaRfft()
+     * @return 0 or error function.
+     */
+	
+	int rank      = 1;                           // --- 1D FFTs
+	int n[]       = {num_elements};             // --- Size of the Fourier transform
+	int inembed[] = {0};                  // --- Input size with pitch (ignored for 1D transforms)
+	int onembed[] = {0};                  // --- Output size with pitch (ignored for 1D transforms)
+	int istride   = 2, ostride = 2; // --- Distance between two successive input/output elements
+	int idist     = 1, odist = 1;   // --- Distance between batches
+	int batch     = 2;               // --- Number of batched executions
+    
+    cufftHandle plan; 
+    cufftResult result = 
+        cufftPlanMany(
+			&plan, rank, n, 
+			inembed, istride, idist,
+			onembed, ostride, odist, CUFFT_C2R, batch
+		);
+    
+    if (result != CUFFT_SUCCESS)
+    {
+        fprintf(
+            stderr, 
+            "%s:\n"
+            "CUIFFT error: Plan creation failed! Error code: %s \n", 
+            __func__,
+            _cufftGetErrorEnum(result)
+        );
+        return EXIT_FAILURE;	
+    }	
+
+    // Use the CUFFT plan to transform the signal in place:
+    
+    float *output;
+    CUDA_CALL(cudaMalloc((void**)&output, sizeof(float) * num_elements * 2));
+
+    result = 
+        cufftExecC2R(
+            plan, 
+            (cufftComplex*)input, 
+            (cufftReal*)output
+        );
+        
+    cudaFree(input);
+    
+    if (result != CUFFT_SUCCESS)
+    {
+        fprintf(
+            stderr, 
+            "%s:\n"
+            "CUIFFT error: xecC2C Forward failed! Error code: %s \n", 
+            __func__,
+            _cufftGetErrorEnum(result)
+        );
+
+        return EXIT_FAILURE;	
+    }
+
+    if (cudaDeviceSynchronize() != cudaSuccess)
+    {
+        fprintf(stderr, "Cuda error: Failed to synchronize. \n");
+        return EXIT_FAILURE;	
+    }
+	
+    // Dividing by num_elements to return to orignal value:
+    const int32_t grid_size = ((num_elements*2 + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    
+    cudaDivideByValue<<<grid_size,BLOCK_SIZE>>>(
+        output, 
+        (float)normalisation_factor, 
+        num_elements*2
+    );
+    
+    *ret_output = output;
     
     return 0;
 }
