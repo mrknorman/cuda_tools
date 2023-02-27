@@ -285,6 +285,13 @@ int32_t cudaIRfft64(
           cuDoubleComplex *data
     );
 
+int32_t cudaInterlacedIRFFT(
+    const int32_t          num_elements,
+	      double           normalisation_factor,
+          cuFloatComplex  *input,
+          float          **ret_output
+    );
+
 int32_t testCudaRfft(
     const int32_t verbosity
     );
