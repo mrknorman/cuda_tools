@@ -95,7 +95,6 @@ using namespace std;
 
 typedef __half2 float16_2_t;
 
-
 __device__ __forceinline__ float _square(
     const float number
 ) {
@@ -124,6 +123,14 @@ __device__ __forceinline__ void __print16(char *name, float16_2_t value)
 {	
 	printf("%s: %f, %f \n", name, (float)value.x, (float)value.y);
 }
+
+__device__ __forceinline__ float _calcNextPow2(const float n)
+{
+   // Use pow here, not bit-wise shift, as the latter seems to run against an
+   // upper cutoff long before SIZE_MAX, at least on some platforms:
+   return powf(2.0f, ceilf(log2f(n)));
+}
+
 
 extern "C" __global__ void arrayToFloat16_2(
 		  float       *array_1, 
@@ -395,7 +402,6 @@ extern "C" int32_t cudaPrintIntArray(
     
     return 0;
 };
-
 
 extern "C" int32_t cudaPrintArray(
     const char    *title,
@@ -3535,6 +3541,14 @@ __global__ void cudaFindMax_(
     }    	
 }
 
+__global__ void _setBufferValue(
+          float *destination_array,
+    const float *source_array
+    ) {
+    
+    destination_array[0] = source_array[0];
+}
+
 extern "C" float cudaFindMaxHost(
           float   *array, 
     const int32_t  num_elements_o
@@ -3545,34 +3559,41 @@ extern "C" float cudaFindMaxHost(
 
 	// Intilize Array:
 		
-	float *buffer;
+	float *buffer = NULL;
     //Need error checking:
 	cudaMalloc((void**)&buffer, sizeof(float) * half_num_elements); 
     
 	// Parrallel reduction:
-	
-	int32_t grid_size = ((half_num_elements + BLOCK_SIZE - 1) / BLOCK_SIZE);
-	cudaFindMax_<<<grid_size,BLOCK_SIZE>>>
-		(array, buffer, half_num_elements, num_elements);
+    	
+    if (num_elements == 1)
+    {
+        _setBufferValue<<<1,1>>>(buffer, array);
+    }
+    else
+    {
+        int32_t grid_size = ((half_num_elements + BLOCK_SIZE - 1) / BLOCK_SIZE);
+        cudaFindMax_<<<grid_size,BLOCK_SIZE>>>
+            (array, buffer, half_num_elements, num_elements);
 
-	num_elements      = half_num_elements;
-	half_num_elements /= 2;
-	
-	while (num_elements > 1)
-	{		
-		grid_size = ((half_num_elements + BLOCK_SIZE - 1) / BLOCK_SIZE);
-		cudaFindMax_<<<grid_size,BLOCK_SIZE>>>(
-            buffer, 
-            buffer, 
-            half_num_elements, 
-            num_elements
-        );
-		
-		num_elements      = half_num_elements;
-		half_num_elements = (int32_t) ceilf((float) half_num_elements / 2.0f);
-	}
-	
-	float max;
+        num_elements      = half_num_elements;
+        half_num_elements /= 2;
+
+        while (num_elements > 1)
+        {		
+            grid_size = ((half_num_elements + BLOCK_SIZE - 1) / BLOCK_SIZE);
+            cudaFindMax_<<<grid_size,BLOCK_SIZE>>>(
+                buffer, 
+                buffer, 
+                half_num_elements, 
+                num_elements
+            );
+
+            num_elements      = half_num_elements;
+            half_num_elements = (int32_t) ceilf((float) half_num_elements / 2.0f);
+        }
+    }
+    
+	float max = 0.0f;
 	// Copy array back to host:
     CUDA_CALL(
         cudaMemcpy(
@@ -3892,7 +3913,7 @@ extern "C" int32_t testCudaFindMax(
         );
 	
 	// Execute kernal:
-	float max = cudaFindMaxHost(array_g , test_array_num_elements);		
+	float max = cudaFindMaxHost(array_g, test_array_num_elements);		
 	
     // Verification:    
     pass *= (fabs(max - 1E9) < MAX_ERR);
