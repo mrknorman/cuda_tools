@@ -97,19 +97,19 @@ typedef __half2 float16_2_t;
 
 __device__ __forceinline__ float _square(
     const float number
-) {
+    ) {
     return number*number;
 }
 
 __device__ __forceinline__ float _cube(
-    const float number)
-{
+    const float number
+    ) {
     return number*number*number;
 }
 
 __device__ __forceinline__ float _quart(
-    const float number)
-{
+    const float number
+    ) {
     const float pow2 = _square(number);
     return pow2 * pow2;
 }
@@ -253,7 +253,6 @@ __device__ __forceinline__ float16_2_t __h2pow(
 
     return result;
 }
-
 
 extern "C" int32_t hostCudaMemCpy(
 		  float   *array_1, 
