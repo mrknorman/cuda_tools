@@ -3125,12 +3125,12 @@ extern "C" int32_t testCudaSetArrayValue(
     // Verification:
     for(int32_t index = 0; index < TEST_LENGTH; index++) 
 	{    
-        pass *= (fabs(array[index] - M_PI) < MAX_ERR);
+        pass = pass && (fabs(array[index] - M_PI) < MAX_ERR);
     }
     
     // Print result:
-    if (verbosity >= 3) {
-        
+    if (verbosity >= 3) 
+    {    
         printTestResult(pass, "cudaSetArrayValue");
     }
     
@@ -3258,8 +3258,8 @@ extern "C" __global__ void cudaFoldArrayC_(
     const int32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
     
     // If not outside array bounds, add opposite side of array:
-    if (tid < half_num_elements) {
-
+    if (tid < half_num_elements) 
+    {
         array[tid].x += array[num_elements - 1 - tid].x;
 		//Normalise:
 		array[tid].x *= 0.5;
@@ -3335,7 +3335,7 @@ extern "C" int32_t testCudaFoldArray(
     // Verification:
     for(int32_t index = 0; index < TEST_LENGTH; index++) {
         
-        pass *= (fabs(array[index] - M_PI) < MAX_ERR);
+        pass = pass && (fabs(array[index] - M_PI) < MAX_ERR);
     }
     
     // Print result:
