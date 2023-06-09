@@ -2596,6 +2596,7 @@ extern "C" int32_t cudaInterlacedIRFFT(
             (cufftReal*)output
         );
         
+    cufftDestroy(plan);
     cudaFree(input);
     
     if (result != CUFFT_SUCCESS)
