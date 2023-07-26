@@ -2631,6 +2631,118 @@ extern "C" int32_t cudaInterlacedIRFFT(
     return 0;
 }
 
+extern "C" int32_t cudaBatchInterlacedIRFFT(
+    const int32_t          num_elements_in_subarray,
+    const int32_t          num_batches,
+	      double           normalisation_factor,
+          cuFloatComplex  *input,
+          float          **ret_output
+    ) {
+    
+    /**
+	 * Perform inplace irfft on cufftComlex input array.
+     * @param 
+     *     const int32_t             num_elements: num elements in array to be run through 
+     *                                       rfft. 
+     *     const int32_t             num_transforms: num rffts to be performed.
+     *           cuFloatComplex       *array: array on which to perform irfft.
+     * @see testCudaRfft()
+     * @return 0 or error function.
+     */
+	
+	int rank      = 1;                           // --- 1D FFTs
+	int n[]       = {num_elements_in_subarray};             // --- Size of the Fourier transform
+	int inembed[] = {0};                  // --- Input size with pitch (ignored for 1D transforms)
+	int onembed[] = {0};                  // --- Output size with pitch (ignored for 1D transforms)
+	int istride   = 2, ostride = 2; // --- Distance between two successive input/output elements
+	int idist     = num_elements_in_subarray, odist = 2 * (num_elements_in_subarray - 1);   // --- Distance between batches
+	int batch     = num_batches;               // --- Number of batched executions
+    
+    cufftHandle plan; 
+    cufftResult result = 
+        cufftPlanMany(
+			&plan, rank, n, 
+			inembed, istride, idist,
+			onembed, ostride, odist, CUFFT_C2R, batch
+		);
+    
+    if (result != CUFFT_SUCCESS)
+    {
+        fprintf(
+            stderr, 
+            "%s:\n"
+            "CUIFFT error: Plan creation failed! Error code: %s \n", 
+            __func__,
+            _cufftGetErrorEnum(result)
+        );
+        return EXIT_FAILURE;	
+    }	
+
+    // Use the CUFFT plan to transform the signal in place:
+    
+    float *output;
+    CUDA_CALL(cudaMalloc((void**)&output, sizeof(float) * num_elements_in_subarray * num_batches * 2));
+
+    result = 
+        cufftExecC2R(
+            plan, 
+            (cufftComplex*)input, 
+            (cufftReal*)output
+        );
+        
+    if (result != CUFFT_SUCCESS)
+    {
+        fprintf(
+            stderr, 
+            "%s:\n"
+            "CUIFFT error: xecC2C Forward failed! Error code: %s \n", 
+            __func__,
+            _cufftGetErrorEnum(result)
+        );
+
+        return EXIT_FAILURE;	
+    }
+        
+    result = 
+        cufftExecC2R(
+            plan, 
+            (cufftComplex*)&input[1], 
+            (cufftReal*)&output[1]
+        );
+        
+    if (result != CUFFT_SUCCESS)
+    {
+        fprintf(
+            stderr, 
+            "%s:\n"
+            "CUIFFT error: xecC2C Forward failed! Error code: %s \n", 
+            __func__,
+            _cufftGetErrorEnum(result)
+        );
+
+        return EXIT_FAILURE;	
+    }    
+
+    if (cudaDeviceSynchronize() != cudaSuccess)
+    {
+        fprintf(stderr, "Cuda error: Failed to synchronize. \n");
+        return EXIT_FAILURE;	
+    }
+	
+    // Dividing by num_elements to return to orignal value:
+    const int32_t grid_size = ((num_elements_in_subarray*num_batches*2 + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    
+    cudaDivideByValue<<<grid_size,BLOCK_SIZE>>>(
+        output, 
+        (float)normalisation_factor, 
+        num_elements_in_subarray * num_batches * 2
+    );
+    
+    *ret_output = output;
+    
+    return 0;
+}
+
 extern "C" int32_t cudaIRfft64(
     const int32_t         num_elements,
     const int32_t         num_transforms,

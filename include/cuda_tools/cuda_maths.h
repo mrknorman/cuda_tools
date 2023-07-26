@@ -292,6 +292,14 @@ int32_t cudaInterlacedIRFFT(
           float          **ret_output
     );
 
+int32_t cudaBatchInterlacedIRFFT(
+    const int32_t          num_elements_in_subarray,
+    const int32_t          num_batches,
+	      double           normalisation_factor,
+          cuFloatComplex  *input,
+          float          **ret_output
+    ); 
+
 int32_t testCudaRfft(
     const int32_t verbosity
     );
