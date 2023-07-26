@@ -2595,7 +2595,9 @@ extern "C" int32_t cudaInterlacedIRFFT(
             (cufftComplex*)input, 
             (cufftReal*)output
         );
-        
+    
+    cudaDeviceSynchronize();
+    cufftDestroy(plan);
     cudaFree(input);
     
     if (result != CUFFT_SUCCESS)
