@@ -254,6 +254,36 @@ __device__ __forceinline__ float16_2_t __h2pow(
     return result;
 }
 
+extern "C" int32_t hostCudaMemInsert(
+		  void    *array_1, 
+		  void    *array_2,  
+    const size_t   element_size,
+	const int32_t  num_elements
+    ) {
+    
+    /**
+     * Copy one gpu to array to another
+     * @param 
+     *       float   *array_1: destination. 
+     *       float   *array_2: source.
+     * const int32_t num_elements: num elements in array_1. 
+     * @see
+     * @return int32_t: error_code
+     */
+     
+    const size_t total_size = element_size*(size_t)num_elements;
+    
+    CUDA_CALL(
+        cudaMemcpy(
+            array_1, 
+            array_2, 
+            total_size, 
+            cudaMemcpyHostToDevice)
+    );
+    
+    return 0;
+}
+
 extern "C" int32_t hostCudaMemCpy(
 		  float   *array_1, 
 		  float   *array_2,  
@@ -419,7 +449,7 @@ extern "C" int32_t cudaPrintArray(
     printf("%s: [", title);
     for (int32_t index = 0; index < num_elements; index++)
     {
-        printf("%f,", array[index]);
+        printf("%i: %e, ", index, array[index]);
     
     }
     printf("]\n");
@@ -674,6 +704,19 @@ extern "C" __global__ void cudaSubtract(
 	{    
         array_1[tid] -= array_2[tid];
     }
+}
+
+extern "C" int32_t hostCudaSubtract(
+          float   *array_1, 
+          float   *array_2, 
+    const int32_t  num_elements
+    ) {
+    
+    const int32_t grid_size = ((num_elements + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    cudaSubtract<<<grid_size,BLOCK_SIZE>>>
+        (array_1, array_2, num_elements);
+ 
+     return 0;
 }
 
 extern "C" __global__ void cudaSubtractValue(
@@ -2491,7 +2534,7 @@ extern "C" int32_t cudaIRfft(
 	int inembed[] = { 0 };                  // --- Input size with pitch (ignored for 1D transforms)
 	int onembed[] = { 0 };                  // --- Output size with pitch (ignored for 1D transforms)
 	int istride = 1, ostride = 1;           // --- Distance between two successive input/output elements
-	int odist = 2*num_elements, idist = num_elements; // --- Distance between batches
+	int odist = 2*(num_elements - 1), idist = num_elements; // --- Distance between batches
 	int batch = num_transforms;             // --- Number of batched executions
     
     cufftHandle plan;
@@ -2556,9 +2599,9 @@ extern "C" int32_t cudaInterlacedIRFFT(
      * @return 0 or error function.
      */
 	
-	int rank      = 1;                           // --- 1D FFTs
-	int n[]       = {num_elements};             // --- Size of the Fourier transform
-	int inembed[] = {0};                  // --- Input size with pitch (ignored for 1D transforms)
+	int rank      = 1;              // --- 1D FFTs
+	int n[]       = {num_elements}; // --- Size of the Fourier transform
+	int inembed[] = {0};            // --- Input size with pitch (ignored for 1D transforms)
 	int onembed[] = {0};                  // --- Output size with pitch (ignored for 1D transforms)
 	int istride   = 2, ostride = 2; // --- Distance between two successive input/output elements
 	int idist     = 1, odist = 1;   // --- Distance between batches
@@ -2626,118 +2669,6 @@ extern "C" int32_t cudaInterlacedIRFFT(
         output, 
         (float)normalisation_factor, 
         num_elements*2
-    );
-    
-    *ret_output = output;
-    
-    return 0;
-}
-
-extern "C" int32_t cudaBatchInterlacedIRFFT(
-    const int32_t          num_elements_in_subarray,
-    const int32_t          num_batches,
-	      double           normalisation_factor,
-          cuFloatComplex  *input,
-          float          **ret_output
-    ) {
-    
-    /**
-	 * Perform inplace irfft on cufftComlex input array.
-     * @param 
-     *     const int32_t             num_elements: num elements in array to be run through 
-     *                                       rfft. 
-     *     const int32_t             num_transforms: num rffts to be performed.
-     *           cuFloatComplex       *array: array on which to perform irfft.
-     * @see testCudaRfft()
-     * @return 0 or error function.
-     */
-	
-	int rank      = 1;                           // --- 1D FFTs
-	int n[]       = {num_elements_in_subarray};             // --- Size of the Fourier transform
-	int inembed[] = {0};                  // --- Input size with pitch (ignored for 1D transforms)
-	int onembed[] = {0};                  // --- Output size with pitch (ignored for 1D transforms)
-	int istride   = 2, ostride = 2; // --- Distance between two successive input/output elements
-	int idist     = num_elements_in_subarray, odist = 2 * (num_elements_in_subarray - 1);   // --- Distance between batches
-	int batch     = num_batches;               // --- Number of batched executions
-    
-    cufftHandle plan; 
-    cufftResult result = 
-        cufftPlanMany(
-			&plan, rank, n, 
-			inembed, istride, idist,
-			onembed, ostride, odist, CUFFT_C2R, batch
-		);
-    
-    if (result != CUFFT_SUCCESS)
-    {
-        fprintf(
-            stderr, 
-            "%s:\n"
-            "CUIFFT error: Plan creation failed! Error code: %s \n", 
-            __func__,
-            _cufftGetErrorEnum(result)
-        );
-        return EXIT_FAILURE;	
-    }	
-
-    // Use the CUFFT plan to transform the signal in place:
-    
-    float *output;
-    CUDA_CALL(cudaMalloc((void**)&output, sizeof(float) * num_elements_in_subarray * num_batches * 2));
-
-    result = 
-        cufftExecC2R(
-            plan, 
-            (cufftComplex*)input, 
-            (cufftReal*)output
-        );
-        
-    if (result != CUFFT_SUCCESS)
-    {
-        fprintf(
-            stderr, 
-            "%s:\n"
-            "CUIFFT error: xecC2C Forward failed! Error code: %s \n", 
-            __func__,
-            _cufftGetErrorEnum(result)
-        );
-
-        return EXIT_FAILURE;	
-    }
-        
-    result = 
-        cufftExecC2R(
-            plan, 
-            (cufftComplex*)&input[1], 
-            (cufftReal*)&output[1]
-        );
-        
-    if (result != CUFFT_SUCCESS)
-    {
-        fprintf(
-            stderr, 
-            "%s:\n"
-            "CUIFFT error: xecC2C Forward failed! Error code: %s \n", 
-            __func__,
-            _cufftGetErrorEnum(result)
-        );
-
-        return EXIT_FAILURE;	
-    }    
-
-    if (cudaDeviceSynchronize() != cudaSuccess)
-    {
-        fprintf(stderr, "Cuda error: Failed to synchronize. \n");
-        return EXIT_FAILURE;	
-    }
-	
-    // Dividing by num_elements to return to orignal value:
-    const int32_t grid_size = ((num_elements_in_subarray*num_batches*2 + BLOCK_SIZE - 1) / BLOCK_SIZE);
-    
-    cudaDivideByValue<<<grid_size,BLOCK_SIZE>>>(
-        output, 
-        (float)normalisation_factor, 
-        num_elements_in_subarray * num_batches * 2
     );
     
     *ret_output = output;

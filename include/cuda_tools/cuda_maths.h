@@ -83,6 +83,13 @@ int32_t hostCudaMemCpy(
 	const int32_t  num_elements
     );
 
+int32_t hostCudaMemInsert(
+		  void    *array_1, 
+		  void    *array_2,  
+    const size_t   element_size,
+	const int32_t  num_elements
+    );
+
 int32_t hostCudaAddValue(
           float   *array, 
           double   value, 
@@ -95,6 +102,12 @@ int32_t testCudaAdd(
 
 int32_t testCudaSubtract(
     const int32_t verbosity
+    );
+
+int32_t hostCudaSubtract(
+          float   *array_1, 
+          float   *array_2, 
+    const int32_t  num_elements
     );
 
 int32_t hostCudaMultiply(
@@ -291,14 +304,6 @@ int32_t cudaInterlacedIRFFT(
           cuFloatComplex  *input,
           float          **ret_output
     );
-
-int32_t cudaBatchInterlacedIRFFT(
-    const int32_t          num_elements_in_subarray,
-    const int32_t          num_batches,
-	      double           normalisation_factor,
-          cuFloatComplex  *input,
-          float          **ret_output
-    ); 
 
 int32_t testCudaRfft(
     const int32_t verbosity
