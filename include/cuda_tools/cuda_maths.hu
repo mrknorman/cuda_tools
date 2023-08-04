@@ -2534,7 +2534,7 @@ extern "C" int32_t cudaIRfft(
 	int inembed[] = { 0 };                  // --- Input size with pitch (ignored for 1D transforms)
 	int onembed[] = { 0 };                  // --- Output size with pitch (ignored for 1D transforms)
 	int istride = 1, ostride = 1;           // --- Distance between two successive input/output elements
-	int odist = 2*(num_elements - 1), idist = num_elements; // --- Distance between batches
+	int odist = 2*num_elements+1, idist = num_elements; // --- Distance between batches
 	int batch = num_transforms;             // --- Number of batched executions
     
     cufftHandle plan;
