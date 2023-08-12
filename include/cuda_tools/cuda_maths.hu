@@ -3764,6 +3764,143 @@ extern "C" float cudaFindAbsMaxMulti(
 	return 0;
 }
 
+__global__ void cudaSetArgArrayMulti_(
+          float   *array, 
+    const int32_t  total_num_elements,
+    const int32_t  num_elements_per_segment
+	) {
+    
+    // Assign unique thread index for GPU calculation:
+    const int32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+            
+    const int32_t index = (int32_t)
+        tid % num_elements_per_segment;
+        
+    if (tid < total_num_elements)
+    {
+        array[tid] = (float) index;
+    }
+}
+
+__global__ void cudaFindArgAbsMaxMulti_(
+          float   *array, 
+          float   *arg_array,
+		  float   *buffer,
+          float   *arg_buffer,
+    const int32_t  num_elements_per_segment,
+	const int32_t  half_num_elements,
+    const int32_t  num_elements,
+    const int32_t  total_num_elements
+	) {
+    
+    // Assign unique thread index for GPU calculation:
+    const int32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    
+    const int32_t segment_index = (int32_t)
+        floorf((float)tid / (float)num_elements_per_segment);
+            
+    const int32_t index = (int32_t)
+        tid % num_elements_per_segment;
+    
+    const int32_t start_index = segment_index * num_elements_per_segment;
+    
+    const int32_t comparision_index = start_index + num_elements - index;    
+    if ((index < half_num_elements) && (comparision_index < total_num_elements))
+    {
+        const float comparison_value = fabs(array[comparision_index]);
+        const float comparison_arg = arg_array[comparision_index];
+
+        if (tid < total_num_elements)
+        {
+            buffer[tid] = 
+				(fabs(array[tid]) >= comparison_value) 
+				? fabs(array[tid]) : comparison_value;
+            
+            arg_buffer[tid] =
+                (fabs(array[tid]) >= comparison_value) 
+                ? arg_array[tid] : comparison_arg;
+        }
+    }
+}
+
+extern "C" float cudaFindArgAbsMaxMulti(
+          float   *array, 
+          float   *arg_max_array,
+    const int32_t  num_segments,
+    const int32_t  num_elements_per_segment,
+    const int32_t  total_num_elements
+	) {
+
+	int32_t num_elements      = num_elements_per_segment;    
+	int32_t half_num_elements = 
+        (int32_t) ceilf((float) num_elements_per_segment / 2.0f);
+
+	// Intilize Array:
+	float *value_buffer = NULL;
+	CUDA_CALL(
+        cudaMalloc((void**)&value_buffer, sizeof(float) * (size_t)total_num_elements)
+    ); 
+    
+    // Intilize Array:
+	float *arg_buffer = NULL;
+	CUDA_CALL(
+        cudaMalloc((void**)&arg_buffer, sizeof(float) * (size_t)total_num_elements)
+    ); 
+    
+    int32_t grid_size = ((total_num_elements + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    cudaSetArgArrayMulti_<<<grid_size,BLOCK_SIZE>>>(
+        arg_buffer, 
+        total_num_elements,
+        num_elements_per_segment
+	);
+    
+	// Parrallel reduction:
+	cudaFindArgAbsMaxMulti_<<<grid_size,BLOCK_SIZE>>>(            
+        array, 
+        arg_buffer,
+        value_buffer, 
+        arg_buffer,
+        num_elements_per_segment,
+        half_num_elements, 
+        num_elements,
+        total_num_elements
+    );
+    
+	num_elements      = half_num_elements;
+	half_num_elements = (int32_t) ceilf((float) half_num_elements / 2.0f);
+	
+	while (num_elements > 1)
+	{		
+		cudaFindArgAbsMaxMulti_<<<grid_size,BLOCK_SIZE>>>(
+            value_buffer, 
+            arg_buffer, 
+            value_buffer, 
+            arg_buffer, 
+            num_elements_per_segment,
+            half_num_elements, 
+            num_elements,
+            total_num_elements
+        );
+		
+		num_elements      = half_num_elements;
+		half_num_elements = (int32_t) ceilf((float) half_num_elements / 2.0f);
+	}
+        
+    grid_size = ((num_segments + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    cudaGetSegmentValuesByIndex<<<grid_size,BLOCK_SIZE>>>(
+        arg_buffer, 
+        arg_max_array,
+        0,
+        num_elements_per_segment,
+        num_segments
+	);
+    
+	cudaFree(value_buffer);
+    cudaFree(arg_buffer);
+    
+	return 0;
+}
+
 __global__ void cudaFindAbsMaxMulti16_(
           float16_2_t *array, 
 		  float16_2_t *buffer,
@@ -3802,9 +3939,9 @@ __global__ void cudaFindAbsMaxMulti16_(
 extern "C" float cudaFindAbsMaxMulti16(
           float16_2_t *array, 
           float16_2_t *max_array,
-    const int32_t     num_segments,
-    const int32_t     num_elements_per_segment,
-    const int32_t     total_num_elements
+    const int32_t      num_segments,
+    const int32_t      num_elements_per_segment,
+    const int32_t      total_num_elements
 	) {
 
 	int32_t num_elements      = num_elements_per_segment;    

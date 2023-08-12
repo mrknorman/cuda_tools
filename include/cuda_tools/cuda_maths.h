@@ -375,6 +375,14 @@ float cudaFindAbsMaxMulti(
     const int32_t  total_num_elements
 	);
 
+float cudaFindArgAbsMaxMulti(
+          float   *array, 
+          float   *arg_max_array,
+    const int32_t  num_segments,
+    const int32_t  num_elements_per_segment,
+    const int32_t  total_num_elements
+	);
+
 int32_t cudaNormaliseArrayMulti(
           float   *array,
     const int32_t  num_segments,
