@@ -3812,12 +3812,14 @@ __global__ void cudaFindArgAbsMaxMulti_(
 
         if (tid < total_num_elements)
         {
+            const bool is_bigger = (fabs(array[tid]) >= comparison_value);
+        
             buffer[tid] = 
-				(fabs(array[tid]) >= comparison_value) 
+				is_bigger
 				? fabs(array[tid]) : comparison_value;
             
             arg_buffer[tid] =
-                (fabs(array[tid]) >= comparison_value) 
+                is_bigger
                 ? arg_array[tid] : comparison_arg;
         }
     }
@@ -3853,7 +3855,7 @@ extern "C" float cudaFindArgAbsMaxMulti(
         total_num_elements,
         num_elements_per_segment
 	);
-    
+        
 	// Parrallel reduction:
 	cudaFindArgAbsMaxMulti_<<<grid_size,BLOCK_SIZE>>>(            
         array, 
@@ -3865,7 +3867,7 @@ extern "C" float cudaFindArgAbsMaxMulti(
         num_elements,
         total_num_elements
     );
-    
+        
 	num_elements      = half_num_elements;
 	half_num_elements = (int32_t) ceilf((float) half_num_elements / 2.0f);
 	
@@ -3894,7 +3896,7 @@ extern "C" float cudaFindArgAbsMaxMulti(
         num_elements_per_segment,
         num_segments
 	);
-    
+        
 	cudaFree(value_buffer);
     cudaFree(arg_buffer);
     
