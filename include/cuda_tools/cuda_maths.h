@@ -287,8 +287,9 @@ int32_t cudaRfft(
 int32_t cudaIRfft(
     const int32_t         num_elements,
     const int32_t         num_transforms,
-	const double          normalisation_factor,
-          cuFloatComplex *data
+	      double          normalisation_factor,
+          cuFloatComplex *input,
+          cufftReal*     *output
     );
 
 int32_t cudaIRfft64(

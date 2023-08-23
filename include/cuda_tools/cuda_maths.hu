@@ -2515,7 +2515,8 @@ extern "C" int32_t cudaIRfft(
     const int32_t         num_elements,
     const int32_t         num_transforms,
 	      double          normalisation_factor,
-          cuFloatComplex *data
+          cuFloatComplex *input,
+          cufftReal      *output
     ) {
     
     /**
@@ -2534,7 +2535,7 @@ extern "C" int32_t cudaIRfft(
 	int inembed[] = { 0 };                  // --- Input size with pitch (ignored for 1D transforms)
 	int onembed[] = { 0 };                  // --- Output size with pitch (ignored for 1D transforms)
 	int istride = 1, ostride = 1;           // --- Distance between two successive input/output elements
-	int odist = 2*num_elements+1, idist = num_elements; // --- Distance between batches
+	int odist = 2*num_elements, idist = num_elements; // --- Distance between batches
 	int batch = num_transforms;             // --- Number of batched executions
     
     cufftHandle plan;
@@ -2553,8 +2554,8 @@ extern "C" int32_t cudaIRfft(
     if (
         cufftExecC2R(
             plan, 
-            (cufftComplex*)data, 
-            (cufftReal*)data) 
+            input, 
+            (cufftReal*)output) 
         != CUFFT_SUCCESS)
     {
         fprintf(stderr, "CUFFT error: ExecC2C Forward failed. \n");
@@ -2568,12 +2569,12 @@ extern "C" int32_t cudaIRfft(
     }
 	
     // Dividing by num_elements to return to orignal value:
-    const int32_t grid_size = ((num_elements*num_transforms*2 + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    const int32_t grid_size = ((num_elements*num_transforms + BLOCK_SIZE - 1) / BLOCK_SIZE);
     
     cudaDivideByValue<<<grid_size,BLOCK_SIZE>>>(
-        (float*)data, 
+        (float*)output, 
         (float)normalisation_factor, 
-        num_elements*num_transforms*2
+        num_elements*num_transforms
     );
 
     cufftDestroy(plan);
@@ -2745,17 +2746,17 @@ extern "C" int32_t cudaIRfft64(
     return 0;
 }
 
+/*
 extern "C" int32_t testCudaRfftMany(
     const int32_t verbosity
     ) {
     
-    /**
-      * Test cudaRfft and cudaIRfft functions.
-      * @param 
-      *     const int32_t verbosity: Set verbosity of test.
-      * @see cudaRfft(), cudaIRfft()
-      * @return int32_t pass or error function.
-      */
+    
+      // Test cudaRfft and cudaIRfft functions.
+      // @param 
+      //    const int32_t verbosity: Set verbosity of test.
+      // @see cudaRfft(), cudaIRfft()
+      // @return int32_t pass or error function.
     
     bool pass = true;
     
@@ -2829,6 +2830,7 @@ extern "C" int32_t testCudaRfftMany(
     
     return !pass;
 }
+*/
 
 extern "C" __global__ void cudaGenerateHammingWindow(
           float   *window, 
@@ -4239,7 +4241,7 @@ extern "C" int32_t testCudaFindAbsMax(
 
 extern "C" void cudaResample(
 	const int32_t         old_num_elements,
-	const int32_t         new_num_elements,
+	//const int32_t         new_num_elements,
 	const int32_t         max_num_elements,
 		  cuFloatComplex *window, 
 		  cuFloatComplex *array
@@ -4267,9 +4269,11 @@ extern "C" void cudaResample(
         window, 
         num_frequency_samples
     );
-
+    
+    printf("Needs fixing! i dont think this is how you resample anyway\n");
+    exit(1);
 	// Perfrom IRFFT:
-	cudaIRfft(new_num_elements, 1, new_num_elements, array);
+	//cudaIRfft(new_num_elements, 1, new_num_elements, array);
 }
 
 extern "C" __global__ void cudaRealF(
