@@ -2511,6 +2511,99 @@ extern "C" int32_t cudaRfft(
     return 0;
 }
 
+#include <cfloat> // for FLT_MAX and FLT_MIN
+
+__device__ float d_min = 1e38; // Approximate equivalent to FLT_MAX
+__device__ float d_max = -1e38; // Approximate equivalent to FLT_MIN
+__device__ float d_sum = 0.0f;
+__device__ int d_count = 0;
+
+__device__ void atomicMin(float* address, float val)
+{
+    int *address_as_int = (int*)address;
+    int old = *address_as_int, assumed;
+    while (val < __int_as_float(old)) {
+        assumed = old;
+        old = atomicCAS(address_as_int, assumed, __float_as_int(val));
+    }
+}
+
+__device__ void atomicMax(float* address, float val)
+{
+    int *address_as_int = (int*)address;
+    int old = *address_as_int, assumed;
+    while (val > __int_as_float(old)) {
+        assumed = old;
+        old = atomicCAS(address_as_int, assumed, __float_as_int(val));
+    }
+}
+
+__global__ void compareArrays(float *arr1, float *arr2, bool *areEqual, int size) {
+    int idx = threadIdx.x + blockDim.x * blockIdx.x;
+    float abs_diff;
+
+    if (idx < size) {
+        abs_diff = fabsf(arr1[idx] - arr2[idx]);
+        atomicMin(&d_min, abs_diff);
+        atomicMax(&d_max, abs_diff);
+        atomicAdd(&d_sum, abs_diff);
+        atomicAdd(&d_count, 1);
+        
+        if (arr1[idx] != arr2[idx]) {
+            *areEqual = false;
+        }
+    }
+}
+
+void compareDeviceArrays(float *d_arr1, float *d_arr2, int N) {
+    bool areEqual = true;
+    bool *d_areEqual;
+
+    // Allocate device memory for d_areEqual
+    cudaMalloc((void**)&d_areEqual, sizeof(bool));
+    cudaMemcpy(d_areEqual, &areEqual, sizeof(bool), cudaMemcpyHostToDevice);
+
+    // Execute the comparison kernel
+    int numBlocks = (N + 255) / 256;
+    compareArrays<<<numBlocks, 256>>>(d_arr1, d_arr2, d_areEqual, N);
+    
+    // Wait for all threads to complete
+    cudaDeviceSynchronize();
+
+    // Copy the areEqual value back to host
+    cudaMemcpy(&areEqual, d_areEqual, sizeof(bool), cudaMemcpyDeviceToHost);
+
+    // Print whether arrays are equal or not
+    if (areEqual) {
+        printf("Arrays are equal.\n");
+    } else {
+        printf("Arrays are not equal.\n");
+    }
+
+    // Declare variables to hold device results
+    float h_min, h_max, h_avg;
+    int h_count;
+
+    // Copy device results back to host
+    cudaMemcpyFromSymbol(&h_min, d_min, sizeof(float), 0, cudaMemcpyDeviceToHost);
+    cudaMemcpyFromSymbol(&h_max, d_max, sizeof(float), 0, cudaMemcpyDeviceToHost);
+    cudaMemcpyFromSymbol(&h_avg, d_sum, sizeof(float), 0, cudaMemcpyDeviceToHost);
+    cudaMemcpyFromSymbol(&h_count, d_count, sizeof(int), 0, cudaMemcpyDeviceToHost);
+
+    // Calculate average
+    if(h_count != 0) {
+        h_avg /= h_count;
+    } else {
+        h_avg = 0;
+    }
+
+    // Print min, max and average absolute differences
+    printf("Min Abs Diff: %e, Max Abs Diff: %e, Avg Abs Diff: %e\n", h_min, h_max, h_avg);
+
+    // Free device memory
+    cudaFree(d_areEqual);
+}
+
 extern "C" int32_t cudaIRfft(
     const int32_t         num_elements,
     const int32_t         num_transforms,
@@ -2535,7 +2628,7 @@ extern "C" int32_t cudaIRfft(
 	int inembed[] = { 0 };                  // --- Input size with pitch (ignored for 1D transforms)
 	int onembed[] = { 0 };                  // --- Output size with pitch (ignored for 1D transforms)
 	int istride = 1, ostride = 1;           // --- Distance between two successive input/output elements
-	int odist = 2*num_elements, idist = num_elements; // --- Distance between batches
+	int odist = 2*num_elements - 2, idist = num_elements; // --- Distance between batches
 	int batch = num_transforms;             // --- Number of batched executions
     
     cufftHandle plan;
@@ -2561,20 +2654,20 @@ extern "C" int32_t cudaIRfft(
         fprintf(stderr, "CUFFT error: ExecC2C Forward failed. \n");
         return EXIT_FAILURE;	
     }
-
+    
     if (cudaDeviceSynchronize() != cudaSuccess)
     {
         fprintf(stderr, "Cuda error: Failed to synchronize. \n");
         return EXIT_FAILURE;	
     }
-	
+    
     // Dividing by num_elements to return to orignal value:
-    const int32_t grid_size = ((num_elements*num_transforms + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    const int32_t grid_size = ((odist*num_transforms + BLOCK_SIZE - 1) / BLOCK_SIZE);
     
     cudaDivideByValue<<<grid_size,BLOCK_SIZE>>>(
         (float*)output, 
         (float)normalisation_factor, 
-        num_elements*num_transforms
+        odist*num_transforms
     );
 
     cufftDestroy(plan);
