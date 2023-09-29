@@ -2592,7 +2592,7 @@ void compareDeviceArrays(float *d_arr1, float *d_arr2, int N) {
 
     // Calculate average
     if(h_count != 0) {
-        h_avg /= h_count;
+        h_avg /= (float)h_count;
     } else {
         h_avg = 0;
     }
